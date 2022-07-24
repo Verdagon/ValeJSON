@@ -1,0 +1,85 @@
+
+func str(node &JsonNode) str {
+  s = StringBuilder();
+  node.serialize(&s);
+  return s.assembleStr();
+  //ret "hi";
+}
+
+abstract func serialize(virtual node &JsonNode, builder &StringBuilder);
+func serialize(node &JsonNumber, builder &StringBuilder) {
+  builder.print(node.value);
+}
+func serialize(node &JsonBoolean, builder &StringBuilder) {
+  builder.print(node.value);
+}
+func serialize(node &JsonString, builder &StringBuilder) {
+  builder.print("\"");
+  builder.print(jsonEscapeString(node.value.slice()));
+  builder.print("\"");
+}
+func serialize(node &JsonNull, builder &StringBuilder) {
+  builder.print("null");
+}
+func serialize(node &JsonArray, builder &StringBuilder) {
+  builder.print("[");
+  first = true;
+  foreach element in node.elements {
+    if (not first) {
+      builder.print(",");
+    }
+    element.serialize(builder);
+    set first = false;
+  }
+  builder.print("]");
+}
+func serialize(node &JsonObject, builder &StringBuilder) {
+  builder.print("\{");
+  first = true;
+  foreach [key, value] in node.fields {
+    if (not first) {
+      builder.print(",");
+    }
+    builder.print("\"");
+    builder.print(jsonEscapeString(key.slice()));
+    builder.print("\"");
+    builder.print(":");
+    value.serialize(builder);
+    set first = false;
+  }
+  builder.print("\}");
+}
+
+func jsonEscapeString(s StrSlice) StrSlice {
+  iter = ParseIter(s);
+
+  while (iter.hasNext() and not iter.nextIn("\"\\\n\t\r")) {
+    iter.getNext();
+  }
+
+  if (not iter.hasNext()) {
+    // Then we reached the end and found nothing that really needed escaping.
+    // Huzzah! Return the input!
+    return s;
+  }
+
+  builder = StringBuilder(List<StrSlice>());
+  builder.print(s.slice(0, s.len() - iter.Rest().len()));
+  while (iter.hasNext()) {
+    c = iter.getNext();
+    if (c == "\n") {
+      builder.print("\\n");
+    } else if (c == "\r") {
+      builder.print("\\r");
+    } else if (c == "\t") {
+      builder.print("\\t");
+    } else if (c == "\\") {
+      builder.print("\\\\");
+    } else if (c == "\"") {
+      builder.print("\\\"");
+    } else {
+      builder.print(c);
+    }
+  }
+  return builder.assembleStr().slice();
+}

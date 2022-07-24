@@ -1,0 +1,275 @@
+import parseiter.*;
+
+func nextJsonNumber(originalIter &ParseIter) Result<Opt<JsonNumber>, str> {
+  tentativeIter = copy(&originalIter);
+
+  if not tentativeIter.hasNext() {
+    return Ok<Opt<JsonNumber>, str>(None<JsonNumber>());
+  }
+
+  hadNegativeSign = tentativeIter.skipIfNext("-");
+
+  tentativeIter.skipWhitespace();
+
+  anyDigitsConsumed = false;
+  totalSoFar = 0;
+  while true {
+    maybeDigit = nextNumericChar(&tentativeIter);
+    if maybeDigit.isEmpty() {
+      break;
+    }
+    set totalSoFar = totalSoFar * 10 + maybeDigit.get();
+    set anyDigitsConsumed = true;
+  }
+  // One day...
+  // while [digit] = nextNumericChar(&tentativeIter) {
+  //   set totalSoFar = totalSoFar * 10 + digit;
+  //   set anyDigitsConsumed = true;
+  // }
+
+  if anyDigitsConsumed {
+    signum = if hadNegativeSign { -1 } else { 1 };
+    tentativeIter.copyInto(originalIter);
+    return Ok<Opt<JsonNumber>, str>(Some(JsonNumber(signum * totalSoFar)));
+  } else {
+    if hadNegativeSign {
+      return Err<Opt<JsonNumber>, str>("Negative sign must be followed by a number!");
+    }
+    return Ok<Opt<JsonNumber>, str>(None<JsonNumber>());
+  }
+}
+
+func nextJsonString(originalIter &ParseIter) Result<Opt<JsonString>, str> {
+  tentativeIter = copy(&originalIter);
+
+  if not tentativeIter.hasNext() {
+    return Ok<Opt<JsonString>, str>(None<JsonString>());
+  }
+
+  if not tentativeIter.skipIfNext("\"") {
+    return Ok<Opt<JsonString>, str>(None<JsonString>());
+  }
+
+  tentativeIter.skipWhitespace();
+
+  result = "";
+  running = true;
+  while running {
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonString>, str>("Quoted string has no end!");
+    } else if tentativeIter.skipIfNext("\"") {
+      set running = false;
+    } else if tentativeIter.skipIfNext("\\") {
+      if tentativeIter.skipIfNext("\\") {
+        set result = result + "\\";
+      } else if tentativeIter.skipIfNext("n") {
+        set result = result + "\n";
+      } else if tentativeIter.skipIfNext("t") {
+        set result = result + "\t";
+      } else if tentativeIter.skipIfNext("r") {
+        set result = result + "\r";
+      } else if tentativeIter.skipIfNext("u") {
+        return Err<Opt<JsonString>, str>("Unimplemented: ParserIter.nextJsonString for \\u");
+      } else {
+        return Err<Opt<JsonString>, str>("Unknown escape: " + tentativeIter.peek());
+      }
+    } else {
+      set result = result + tentativeIter.getNext();
+    }
+  }
+  tentativeIter.copyInto(originalIter);
+  return Ok<Opt<JsonString>, str>(Some(JsonString(result)));
+}
+
+func nextJsonArray(originalIter &ParseIter) Result<Opt<JsonArray>, str> {
+  tentativeIter = copy(&originalIter);
+
+  if not tentativeIter.hasNext() {
+    return Ok<Opt<JsonArray>, str>(None<JsonArray>());
+  }
+
+  if not tentativeIter.skipIfNext("[") {
+    return Ok<Opt<JsonArray>, str>(None<JsonArray>());
+  }
+
+  result = List<JsonNode>();
+
+  tentativeIter.skipWhitespace();
+
+  if not tentativeIter.hasNext() {
+    return Err<Opt<JsonArray>, str>("Array has no end!");
+  }
+  if tentativeIter.skipIfNext("]") {
+    tentativeIter.copyInto(originalIter);
+    return Ok<Opt<JsonArray>, str>(Some(JsonArray((result).toVaryArray())));
+  }
+
+  running = true;
+  first = true;
+  while running {
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonArray>, str>("Array has no end!");
+    }
+    json_result = parseJson(&tentativeIter);
+    if json_result.is_err() {
+      return Err<Opt<JsonArray>, str>(json_result.expect_err());
+    }
+    result.add((json_result).expect());
+
+    tentativeIter.skipWhitespace();
+
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonArray>, str>("Array has no end!");
+    } else if tentativeIter.skipIfNext("]") {
+      set running = false;
+    } else if tentativeIter.skipIfNext(",") {
+      tentativeIter.skipWhitespace();
+      // keep going
+    } else {
+      return Err<Opt<JsonArray>, str>(
+          "Expected , or ] after element in array, found: " + tentativeIter.peek());
+    }
+  }
+  tentativeIter.copyInto(originalIter);
+  return Ok<Opt<JsonArray>, str>(Some(JsonArray((result).toVaryArray())));
+}
+
+func nextJsonObject(originalIter &ParseIter) Result<Opt<JsonObject>, str> {
+  if not originalIter.hasNext() {
+    return Ok<Opt<JsonObject>, str>(None<JsonObject>());
+  }
+
+  tentativeIter = copy(&originalIter);
+
+  if not tentativeIter.skipIfNext("\{") {
+    return Ok<Opt<JsonObject>, str>(None<JsonObject>());
+  }
+
+  result = HashMap<str, JsonNode, StrHasher, StrEquator>(StrHasher(), StrEquator());
+
+  tentativeIter.skipWhitespace();
+
+  if not tentativeIter.hasNext() {
+    return Err<Opt<JsonObject>, str>("Object has no end!");
+  }
+  if tentativeIter.skipIfNext("\}") {
+    tentativeIter.copyInto(originalIter);
+    return Ok<Opt<JsonObject>, str>(Some(JsonObject(result)));
+  }
+
+  running = true;
+  first = true;
+  while running {
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonObject>, str>("Object has no end!");
+    }
+    maybe_name_result = tentativeIter.nextJsonString();
+    if maybe_name_result.is_err() {
+      return Err<Opt<JsonObject>, str>(maybe_name_result.expect_err());
+    }
+    maybe_name = (maybe_name_result).expect();
+    if maybe_name.isEmpty() {
+      return Err<Opt<JsonObject>, str>("Expected object field name, instead found: " + tentativeIter.peek());
+    }
+    name = (maybe_name).get().value;
+
+    tentativeIter.skipWhitespace();
+
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonObject>, str>("Object has no end!");
+    }
+
+    if not tentativeIter.skipIfNext(":") {
+      return Err<Opt<JsonObject>, str>("Object field name not followed by :");
+    }
+
+    tentativeIter.skipWhitespace();
+
+    json_result = parseJson(&tentativeIter);
+    if json_result.is_err() {
+      return Err<Opt<JsonObject>, str>(json_result.expect_err());
+    }
+    result.add(name, (json_result).expect());
+
+    tentativeIter.skipWhitespace();
+
+    if not tentativeIter.hasNext() {
+      return Err<Opt<JsonObject>, str>("Object has no end!");
+    } else if tentativeIter.skipIfNext("\}") {
+      set running = false;
+    } else if tentativeIter.skipIfNext(",") {
+      tentativeIter.skipWhitespace();
+      // keep going
+    } else {
+      return Err<Opt<JsonObject>, str>(
+          "Expected , or \} after element in object, found: " + tentativeIter.peek());
+    }
+  }
+  tentativeIter.copyInto(originalIter);
+  return Ok<Opt<JsonObject>, str>(Some(JsonObject(result)));
+}
+
+func parseJson(iter &ParseIter) Result<JsonNode, str> {
+
+  if iter.skipIfNext("null") {
+    return Ok<JsonNode, str>(JsonNull());
+  }
+
+  if iter.skipIfNext("true") {
+    return Ok<JsonNode, str>(JsonBoolean(true));
+  }
+
+  if iter.skipIfNext("false") {
+    return Ok<JsonNode, str>(JsonBoolean(false));
+  }
+
+  maybe_int_result = iter.nextJsonNumber();
+  if maybe_int_result.is_err() {
+    return Err<JsonNode, str>((maybe_int_result).expect_err());
+  }
+  maybe_int = (maybe_int_result).expect();
+  if not maybe_int.isEmpty() {
+    return Ok<JsonNode, str>((maybe_int).get());
+  }
+
+  maybe_str_result = iter.nextJsonString();
+  if maybe_str_result.is_err() {
+    return Err<JsonNode, str>((maybe_str_result).expect_err());
+  }
+  maybe_str = (maybe_str_result).expect();
+  if not maybe_str.isEmpty() {
+    return Ok<JsonNode, str>((maybe_str).get());
+  }
+
+  maybe_arr_result = iter.nextJsonArray();
+  if maybe_arr_result.is_err() {
+    return Err<JsonNode, str>((maybe_arr_result).expect_err());
+  }
+  maybe_arr = (maybe_arr_result).expect();
+  if not maybe_arr.isEmpty() {
+    return Ok<JsonNode, str>((maybe_arr).get());
+  }
+
+  maybe_obj_result = iter.nextJsonObject();
+  if maybe_obj_result.is_err() {
+    return Err<JsonNode, str>((maybe_obj_result).expect_err());
+  }
+  maybe_obj = (maybe_obj_result).expect();
+  if not maybe_obj.isEmpty() {
+    return Ok<JsonNode, str>((maybe_obj).get());
+  }
+
+  panic("Json node unrecognized: " + iter.Rest().slice(0, 100));
+}
+
+func jsonToNode(s StrSlice) Result<JsonNode, str> {
+  iter = ParseIter(s);
+  node_result = parseJson(&iter);
+  if node_result.is_err() {
+    return node_result;
+  }
+  if iter.Rest() != "".slice() {
+    return Err<JsonNode, str>("Still text at end of input: " + iter.Rest());
+  }
+  return node_result;
+}

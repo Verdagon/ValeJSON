@@ -1,0 +1,47 @@
+
+func expect_obj_member_str(obj &JsonObject, field_name str) Result<str, str> {
+  maybe_node = obj.fields.get(field_name);
+  if (maybe_node.isEmpty()) {
+    return Err<str, str>("Missing '{field_name}' field!");
+  }
+  node = maybe_node.get();
+  maybe_str = node.as<JsonString>();
+  if (maybe_str.is_err()) {
+    return Err<str, str>("Expected '{field_name}' field to be a string!");
+  }
+  return Ok<str, str>(maybe_str.expect().value);
+}
+
+func expect_obj_member_int(obj &JsonObject, field_name str) Result<int, str> {
+  maybe_node = obj.fields.get(field_name);
+  if (maybe_node.isEmpty()) {
+    return Err<int, str>("Missing '{field_name}' field!");
+  }
+  node = maybe_node.get();
+  maybe_str = node.as<JsonNumber>();
+  if (maybe_str.is_err()) {
+    return Err<int, str>("Expected '{field_name}' field to be a number!");
+  }
+  return Ok<int, str>(maybe_str.expect().value);
+}
+
+func expect_obj_member_bool(obj &JsonObject, field_name str) Result<bool, str> {
+  maybe_node = obj.fields.get(field_name);
+  if (maybe_node.isEmpty()) {
+    return Err<bool, str>("Missing '{field_name}' field!");
+  }
+  node = maybe_node.get();
+  maybe_str = node.as<JsonBoolean>();
+  if (maybe_str.is_err()) {
+    return Err<bool, str>("Expected '{field_name}' field to be a number!");
+  }
+  return Ok<bool, str>(maybe_str.expect().value);
+}
+
+func expect_obj_member(obj &JsonObject, field_name str) Result<&JsonNode, str> {
+  maybe_node = obj.fields.get(field_name);
+  if (maybe_node.isEmpty()) {
+    return Err<&JsonNode, str>("Missing '{field_name}' field!");
+  }
+  return Ok<&JsonNode, str>(maybe_node.get());
+}

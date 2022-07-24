@@ -1,0 +1,44 @@
+import stdlib.collections.*;
+import stdlib.stringutils.*;
+import parseiter.*;
+
+sealed interface JsonNode { }
+
+struct JsonNumber {
+  value int;
+}
+impl JsonNode for JsonNumber;
+func JsonNode(i int) JsonNumber { JsonNumber(i) }
+
+struct JsonBoolean {
+  value bool;
+}
+impl JsonNode for JsonBoolean;
+func JsonNode(b bool) JsonBoolean { JsonBoolean(b) }
+
+struct JsonNull { }
+impl JsonNode for JsonNull;
+
+struct JsonString {
+  value str;
+}
+impl JsonNode for JsonString;
+func JsonNode(s str) JsonString { JsonString(s) }
+
+struct JsonObject {
+  fields HashMap<str, JsonNode, StrHasher, StrEquator>;
+}
+impl JsonNode for JsonObject;
+func JsonObject() JsonObject {
+  JsonObject(
+    HashMap<str, JsonNode, StrHasher, StrEquator>(
+      StrHasher(), StrEquator()))
+}
+
+struct JsonArray {
+  elements Array<mut, JsonNode>;
+}
+impl JsonNode for JsonArray;
+func JsonArray() JsonArray {
+  JsonArray(Array<mut, JsonNode>(0))
+}

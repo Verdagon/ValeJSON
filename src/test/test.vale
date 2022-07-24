@@ -1,0 +1,191 @@
+import valejson.*;
+import stdlib.testsuite.*;
+
+func expectParseIntError(s str, expected_error str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_int_result = iter.nextJsonNumber();
+  iter.Rest().len() should_equal s.len();
+  maybe_actual_int_result.is_ok() should_equal false;
+  actual_error = maybe_actual_int_result.expect_err();
+  actual_error should_equal expected_error;
+}
+
+func expectParseIntEmpty(s str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_int_result = iter.nextJsonNumber();
+  iter.Rest().len() should_equal s.len();
+  maybe_actual_int_result.is_ok() should_equal true;
+  maybe_actual_int = maybe_actual_int_result.expect();
+  (&maybe_actual_int).isEmpty() should_equal true;
+}
+
+func expectParseIntValid(s str, expected_int int, expected_rest str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_int_result = iter.nextJsonNumber();
+  maybe_actual_int_result.is_ok() should_equal true;
+  iter.Rest() should_equal expected_rest.slice();
+  maybe_actual_int = maybe_actual_int_result.expect();
+  (&maybe_actual_int).isEmpty() should_equal false;
+  actualInt = (&maybe_actual_int).get();
+  actualInt.value should_equal expected_int;
+}
+
+func expectParseStrEmpty(s str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_str_result = iter.nextJsonString();
+  iter.Rest().len() should_equal s.len();
+  maybe_actual_str_result.is_ok() should_equal true;
+  maybe_actual_str = (&maybe_actual_str_result).expect();
+  (&maybe_actual_str).isEmpty() should_equal true;
+}
+
+func expectParseStrError(s str, expected_error str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_str_result = iter.nextJsonString();
+  iter.Rest().len() should_equal s.len();
+  maybe_actual_str_result.is_ok() should_equal false;
+  actual_error = maybe_actual_str_result.expect_err();
+  actual_error should_equal expected_error;
+}
+
+func expectParseStrValid(s str, expected_str str, expected_rest str) {
+  iter = ParseIter(s.slice());
+  maybe_actual_str_result = iter.nextJsonString();
+  maybe_actual_str_result.is_ok() should_equal true;
+  iter.Rest() should_equal expected_rest.slice();
+  maybe_actual_str = maybe_actual_str_result.expect();
+  (&maybe_actual_str).isEmpty() should_equal false;
+  actualStr = (&maybe_actual_str).get();
+  actualStr.value should_equal expected_str;
+}
+
+func tryParseComplete(s str) JsonNode {
+  iter = ParseIter(s.slice());
+  node_result = parseJson(&iter);
+  if (node_result.is_err()) {
+    panic(node_result.expect_err());
+  }
+  iter.Rest() should_equal "".slice();
+  return (node_result).expect();
+}
+
+func tryParseJson<JsonSubtype>(s str) infer-ret
+where JsonSubtype Kind {
+  node = tryParseComplete(s);
+  maybe_json_thing = (node).as<JsonSubtype>();
+  maybe_json_thing.is_ok() should_equal true;
+  return (maybe_json_thing).expect();
+}
+
+exported func main() {
+  // remove these when we compile everything always
+  JsonObject();
+  JsonArray();
+
+  suite = TestSuite();
+  suite.sub("parse int Empty", (sts) => {
+    sts.test("0", { expectParseIntEmpty(""); });
+    sts.test("1", { expectParseIntEmpty("abc"); });
+    sts.test("3", { expectParseIntEmpty("."); });
+    sts.test("4", { expectParseIntEmpty("\n"); });
+    sts.test("5", { expectParseIntEmpty(" "); });
+  });
+  suite.sub("parse int Error", (sts) => {
+    sts.test("0", { expectParseIntError("-", "Negative sign must be followed by a number!"); });
+  });
+  suite.sub("parse int Valid", (sts) => {
+    sts.test("0", { expectParseIntValid("123", 123, ""); });
+    sts.test("1", { expectParseIntValid("-123", -123, ""); });
+    sts.test("2", { expectParseIntValid("-0", 0, ""); });
+    sts.test("3", { expectParseIntValid("0", 0, ""); });
+    sts.test("4", { expectParseIntValid("0123a", 123, "a"); });
+    sts.test("5", { expectParseIntValid("0123-12", 123, "-12"); });
+  });
+  suite.sub("parse str Empty", (sts) => {
+    sts.test("0", { expectParseStrEmpty(""); });
+    sts.test("1", { expectParseStrEmpty("123"); });
+  });
+  suite.sub("parse str Error", (sts) => {
+    sts.test("0", { expectParseStrError("\"blah", "Quoted string has no end!"); });
+    sts.test("1", { expectParseStrError("\"\\b\"", "Unknown escape: b"); });
+  });
+  suite.sub("parse str Valid", (sts) => {
+    sts.test("normal", { expectParseStrValid("\"hi\"", "hi", ""); });
+    sts.test("nl", { expectParseStrValid("\"\\n\"", "\n", ""); });
+    sts.test("tab", { expectParseStrValid("\"\\t\"", "\t", ""); });
+    sts.test("trailing", { expectParseStrValid("\"abc\"123", "abc", "123"); });
+  });
+
+  suite.test("json parse number 1", {
+    tryParseJson<JsonNumber>("123").value should_equal 123;
+  });
+  suite.test("json parse number 2", {
+    tryParseJson<JsonNumber>("-123").value should_equal -123;
+  });
+  suite.test("json parse string 1", {
+    tryParseJson<JsonString>("\"hello\"").value should_equal "hello";
+  });
+  suite.test("json parse bool 1", {
+    tryParseJson<JsonBoolean>("true").value should_equal true;
+  });
+
+  suite.sub("parse array", (sts) => {
+    sts.test("1", {
+      j = tryParseJson<JsonArray>("[4, 5]");
+      arr = j.elements;
+      arr.len() should_equal 2;
+      arr[0].as<JsonNumber>().expect().value should_equal 4;
+      arr[1].as<JsonNumber>().expect().value should_equal 5;
+    });
+    sts.test("2", {
+      j = tryParseJson<JsonArray>("[[4, 5]]");
+      outerArr = j.elements;
+      outerArr.len() should_equal 1;
+      innerArr = outerArr[0].as<JsonArray>().expect().elements;
+      innerArr[0].as<JsonNumber>().expect().value should_equal 4;
+      innerArr[1].as<JsonNumber>().expect().value should_equal 5;
+    });
+  });
+  suite.sub("parse object", (sts) => {
+    sts.test("json parse object 0", {
+      j = tryParseJson<JsonObject>("\{\}");
+      fields = j.fields;
+      fields.len() should_equal 0;
+    });
+    sts.test("json parse object 1", {
+      j = tryParseJson<JsonObject>("""\{"foo": "bar", "zork": 1337\}""");
+      fields = j.fields;
+      fields.len() should_equal 2;
+      fields.get("foo").get().as<JsonString>().expect().value should_equal "bar";
+      fields.get("zork").get().as<JsonNumber>().expect().value should_equal 1337;
+    });
+    sts.test("json parse object 2", {
+      j = tryParseJson<JsonObject>("""\{"foo": \{"bar": "zork"\}\}""");
+      outerFields = j.fields;
+      outerFields.len() should_equal 1;
+      innerFields = outerFields.get("foo").get().as<JsonObject>().expect().fields;
+      innerFields.len() should_equal 1;
+      innerFields.get("bar").get().as<JsonString>().expect().value should_equal "zork";
+    });
+  });
+
+  suite.sub("serialize int", (sts) => {
+    sts.test("42", { JsonNumber(42).str() should_equal "42" });
+    sts.test("-42", { JsonNumber(-42).str() should_equal "-42" });
+  });
+
+  suite.sub("serialize bool", (sts) => {
+    sts.test("true", { JsonBoolean(true).str() should_equal "true" });
+    sts.test("false", { JsonBoolean(false).str() should_equal "false" });
+  });
+
+  suite.sub("serialize str", (sts) => {
+    sts.test("1", { JsonString("hello").str() should_equal "\"hello\"" });
+    sts.test("empty", { JsonString("").str() should_equal "\"\"" });
+    sts.test("escape quote", { JsonString("\"").str() should_equal "\"\\\"\"" });
+    sts.test("escape backslash", { JsonString("\\").str() should_equal "\"\\\\\"" });
+    sts.test("newline", { JsonString("\n").str() should_equal "\"\\n\"" });
+  });
+
+  (suite).finish();
+}
